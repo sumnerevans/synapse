@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import attr
 import threading
 from functools import wraps
 from typing import (
@@ -22,13 +23,14 @@ from typing import (
     Iterable,
     List,
     Optional,
+    Protocol,
     Type,
     TypeVar,
     Union,
     cast,
     overload,
 )
-
+import weakref
 from typing_extensions import Literal
 
 from synapse.config import cache as cache_config
@@ -80,6 +82,40 @@ def enumerate_leaves(node, depth):
         for n in node.values():
             for m in enumerate_leaves(n, depth - 1):
                 yield m
+
+
+class _Parent(Protocol):
+    def drop(self) -> None:
+        ...
+
+
+@attr.s(slots=True)
+class _Link:
+    parent: Optional["weakref.ReferenceType[_Parent]"] = None
+    prev_node: "_Link" = attr.ib(
+        default=attr.Factory(lambda self: self, takes_self=True)
+    )
+    next_node: "_Link" = attr.ib(
+        default=attr.Factory(lambda self: self, takes_self=True)
+    )
+
+    def remove_from_list(self):
+        prev_node = self.prev_node
+        next_node = self.next_node
+        prev_node.next_node = next_node
+        next_node.prev_node = prev_node
+
+    def insert_after(self, link: "_Link"):
+        self.remove_from_list()
+
+        prev_node = link
+        next_node = prev_node.next_node
+
+        self.prev_node = prev_node
+        self.next_node = next_node
+
+        prev_node.next_node = self
+        next_node.prev_node = self
 
 
 class _Node:
