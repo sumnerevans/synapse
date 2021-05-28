@@ -89,15 +89,26 @@ class _Parent(Protocol):
         ...
 
 
-@attr.s(slots=True)
-class _Link:
-    parent: Optional["weakref.ReferenceType[_Parent]"] = None
-    prev_node: "_Link" = attr.ib(
+P = TypeVar("P", bound=_Parent)
+
+
+@attr.s(slots=True, auto_attribs=True)
+class _ListNode(Generic[P]):
+    parent: Optional["weakref.ReferenceType[P]"] = None
+    prev_node: "_ListNode[P]" = attr.ib(
         default=attr.Factory(lambda self: self, takes_self=True)
     )
-    next_node: "_Link" = attr.ib(
+    next_node: "_ListNode[P]" = attr.ib(
         default=attr.Factory(lambda self: self, takes_self=True)
     )
+
+    @staticmethod
+    def insert_after(
+        parent: "weakref.ReferenceType[_Parent]", root: "_ListNode"
+    ) -> "_ListNode":
+        node = _ListNode(parent)
+        node.move_after(root)
+        return node
 
     def remove_from_list(self):
         prev_node = self.prev_node
@@ -105,10 +116,10 @@ class _Link:
         prev_node.next_node = next_node
         next_node.prev_node = prev_node
 
-    def insert_after(self, link: "_Link"):
+    def move_after(self, root: "_ListNode"):
         self.remove_from_list()
 
-        prev_node = link
+        prev_node = root
         next_node = prev_node.next_node
 
         self.prev_node = prev_node
@@ -117,20 +128,25 @@ class _Link:
         prev_node.next_node = self
         next_node.prev_node = self
 
+    def get_parent(self) -> Optional[_Parent]:
+        if not self.parent:
+            return None
+
+        return self.parent()
+
 
 class _Node:
-    __slots__ = ["prev_node", "next_node", "key", "value", "callbacks", "memory"]
+    __slots__ = ["list_node", "key", "value", "callbacks", "memory"]
 
     def __init__(
         self,
-        prev_node,
-        next_node,
+        root: "_ListNode[_Node]",
         key,
         value,
+        cache,
         callbacks: Collection[Callable[[], None]] = (),
     ):
-        self.prev_node = prev_node
-        self.next_node = next_node
+        self.list_node = _ListNode.insert_after(weakref.ref(self), root)
         self.key = key
         self.value = value
 
@@ -182,6 +198,9 @@ class _Node:
             callback()
 
         self.callbacks = None
+
+    def drop(self) -> None:
+        self.list_node.remove_from_list()
 
 
 class LruCache(Generic[KT, VT]):
@@ -255,16 +274,18 @@ class LruCache(Generic[KT, VT]):
         # this is exposed for access from outside this class
         self.metrics = metrics
 
-        list_root = _Node(None, None, None, None)
-        list_root.next_node = list_root
-        list_root.prev_node = list_root
+        list_root = _ListNode[_Node]()
 
         lock = threading.Lock()
 
         def evict():
             while cache_len() > self.max_size:
                 todelete = list_root.prev_node
-                evicted_len = delete_node(todelete)
+                node = todelete.get_parent()
+                if not node:
+                    continue
+
+                evicted_len = delete_node(node)
                 cache.pop(todelete.key, None)
                 if metrics:
                     metrics.inc_evictions(evicted_len)
@@ -291,11 +312,7 @@ class LruCache(Generic[KT, VT]):
         self.len = synchronized(cache_len)
 
         def add_node(key, value, callbacks: Collection[Callable[[], None]] = ()):
-            prev_node = list_root
-            next_node = prev_node.next_node
-            node = _Node(prev_node, next_node, key, value, callbacks)
-            prev_node.next_node = node
-            next_node.prev_node = node
+            node = _Node(list_root, key, value, cache, callbacks)
             cache[key] = node
 
             if size_callback:
@@ -304,23 +321,11 @@ class LruCache(Generic[KT, VT]):
             if caches.TRACK_MEMORY_USAGE and metrics:
                 metrics.inc_memory_usage(node.memory)
 
-        def move_node_to_front(node):
-            prev_node = node.prev_node
-            next_node = node.next_node
-            prev_node.next_node = next_node
-            next_node.prev_node = prev_node
-            prev_node = list_root
-            next_node = prev_node.next_node
-            node.prev_node = prev_node
-            node.next_node = next_node
-            prev_node.next_node = node
-            next_node.prev_node = node
+        def move_node_to_front(node: _Node):
+            node.list_node.move_after(list_root)
 
-        def delete_node(node):
-            prev_node = node.prev_node
-            next_node = node.next_node
-            prev_node.next_node = next_node
-            next_node.prev_node = prev_node
+        def delete_node(node: _Node) -> int:
+            node.drop()
 
             deleted_len = 1
             if size_callback:
