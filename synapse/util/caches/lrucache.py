@@ -104,7 +104,7 @@ class _ListNode(Generic[P]):
 
     @staticmethod
     def insert_after(
-        parent: "weakref.ReferenceType[_Parent]", root: "_ListNode"
+        parent: "weakref.ReferenceType[P]", root: "_ListNode"
     ) -> "_ListNode":
         node = _ListNode(parent)
         node.move_after(root)
@@ -128,7 +128,7 @@ class _ListNode(Generic[P]):
         prev_node.next_node = self
         next_node.prev_node = self
 
-    def get_parent(self) -> Optional[_Parent]:
+    def get_parent(self) -> Optional[P]:
         if not self.parent:
             return None
 
@@ -136,7 +136,7 @@ class _ListNode(Generic[P]):
 
 
 class _Node:
-    __slots__ = ["list_node", "key", "value", "callbacks", "memory"]
+    __slots__ = ["list_node", "key", "value", "callbacks", "memory", "__weakref__"]
 
     def __init__(
         self,
@@ -286,7 +286,7 @@ class LruCache(Generic[KT, VT]):
                     continue
 
                 evicted_len = delete_node(node)
-                cache.pop(todelete.key, None)
+                cache.pop(node.key, None)
                 if metrics:
                     metrics.inc_evictions(evicted_len)
 
