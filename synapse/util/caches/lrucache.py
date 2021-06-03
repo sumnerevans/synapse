@@ -153,7 +153,7 @@ def _cleanup():
     now = int(time.time())
     node = GLOBAL_ROOT.prev_node
     while node is not GLOBAL_ROOT:
-        if node.ts < now - 5 * 60:
+        if node.ts > now - 5 * 60:
             break
 
         parent = node.get_parent()
