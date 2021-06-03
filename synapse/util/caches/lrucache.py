@@ -85,7 +85,7 @@ def enumerate_leaves(node, depth):
 
 
 class _Parent(Protocol):
-    def drop(self) -> None:
+    def drop_from_cache(self) -> None:
         ...
 
 
@@ -135,18 +135,32 @@ class _ListNode(Generic[P]):
         return self.parent()
 
 
+GLOBAL_ROOT = _ListNode()
+
+
 class _Node:
-    __slots__ = ["list_node", "key", "value", "callbacks", "memory", "__weakref__"]
+    __slots__ = [
+        "list_node",
+        "global_list_node",
+        "cache",
+        "key",
+        "value",
+        "callbacks",
+        "memory",
+        "__weakref__",
+    ]
 
     def __init__(
         self,
         root: "_ListNode[_Node]",
         key,
         value,
-        cache,
+        cache: "LruCache",
         callbacks: Collection[Callable[[], None]] = (),
     ):
         self.list_node = _ListNode.insert_after(weakref.ref(self), root)
+        self.global_list_node = _ListNode.insert_after(weakref.ref(self), GLOBAL_ROOT)
+        self.cache = cache
         self.key = key
         self.value = value
 
@@ -199,8 +213,12 @@ class _Node:
 
         self.callbacks = None
 
-    def drop(self) -> None:
+    def drop_from_cache(self) -> None:
+        self.cache.pop(self.key, None)
+
+    def drop_from_lists(self) -> None:
         self.list_node.remove_from_list()
+        self.global_list_node.remove_from_list()
 
 
 class LruCache(Generic[KT, VT]):
@@ -312,7 +330,7 @@ class LruCache(Generic[KT, VT]):
         self.len = synchronized(cache_len)
 
         def add_node(key, value, callbacks: Collection[Callable[[], None]] = ()):
-            node = _Node(list_root, key, value, cache, callbacks)
+            node = _Node(list_root, key, value, self, callbacks)
             cache[key] = node
 
             if size_callback:
@@ -323,9 +341,10 @@ class LruCache(Generic[KT, VT]):
 
         def move_node_to_front(node: _Node):
             node.list_node.move_after(list_root)
+            node.global_list_node.move_after(list_root)
 
         def delete_node(node: _Node) -> int:
-            node.drop()
+            node.drop_from_lists()
 
             deleted_len = 1
             if size_callback:
