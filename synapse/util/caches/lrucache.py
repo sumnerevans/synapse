@@ -96,10 +96,12 @@ P = TypeVar("P", bound=_Parent)
 class _ListNode(Generic[P]):
     parent: Optional["weakref.ReferenceType[P]"] = None
     prev_node: "_ListNode[P]" = attr.ib(
-        default=attr.Factory(lambda self: self, takes_self=True)
+        default=attr.Factory(lambda self: self, takes_self=True),
+        repr=lambda n: f"{id(n):#x}",
     )
     next_node: "_ListNode[P]" = attr.ib(
-        default=attr.Factory(lambda self: self, takes_self=True)
+        default=attr.Factory(lambda self: self, takes_self=True),
+        repr=lambda n: f"{id(n):#x}",
     )
 
     @staticmethod
