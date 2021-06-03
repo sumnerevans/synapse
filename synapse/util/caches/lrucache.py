@@ -44,6 +44,10 @@ from synapse.util.caches.treecache import TreeCache, iterate_tree_cache_entry
 if TYPE_CHECKING:
     from synapse.app.homeserver import HomeServer
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 try:
     from pympler.asizeof import Asizer
 
@@ -152,6 +156,7 @@ GLOBAL_ROOT = _ListNode()
 def _cleanup():
     now = int(time.time())
     node = GLOBAL_ROOT.prev_node
+    i = 0
     while node is not GLOBAL_ROOT:
         if node.ts > now - 5 * 60:
             break
@@ -159,7 +164,10 @@ def _cleanup():
         parent = node.get_parent()
         node = node.prev_node
         if parent:
+            i += 1
             parent.drop_from_cache()
+
+    logger.info("Dropped from caches %d", i)
 
 
 def schedule_global_cleanup(hs: "HomeServer"):
