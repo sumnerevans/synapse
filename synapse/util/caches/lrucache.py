@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import attr
 import threading
+import time
+import weakref
 from functools import wraps
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Collection,
@@ -30,13 +32,17 @@ from typing import (
     cast,
     overload,
 )
-import weakref
+
+import attr
 from typing_extensions import Literal
 
 from synapse.config import cache as cache_config
 from synapse.util import caches
 from synapse.util.caches import CacheMetric, register_cache
 from synapse.util.caches.treecache import TreeCache, iterate_tree_cache_entry
+
+if TYPE_CHECKING:
+    from synapse.app.homeserver import HomeServer
 
 try:
     from pympler.asizeof import Asizer
@@ -103,6 +109,7 @@ class _ListNode(Generic[P]):
         default=attr.Factory(lambda self: self, takes_self=True),
         repr=lambda n: f"{id(n):#x}",
     )
+    ts: int = attr.ib(factory=lambda: int(time.time()))
 
     @staticmethod
     def insert_after(
@@ -130,6 +137,8 @@ class _ListNode(Generic[P]):
         prev_node.next_node = self
         next_node.prev_node = self
 
+        self.ts = int(time.time())
+
     def get_parent(self) -> Optional[P]:
         if not self.parent:
             return None
@@ -138,6 +147,23 @@ class _ListNode(Generic[P]):
 
 
 GLOBAL_ROOT = _ListNode()
+
+
+def _cleanup():
+    now = int(time.time())
+    node = GLOBAL_ROOT.prev_node
+    while node is not GLOBAL_ROOT:
+        if node.ts < now - 5 * 60:
+            break
+
+        parent = node.get_parent()
+        node = node.prev_node
+        if parent:
+            parent.drop_from_cache()
+
+
+def schedule_global_cleanup(hs: "HomeServer"):
+    hs.get_clock().looping_call(_cleanup, 60 * 1000)
 
 
 class _Node:

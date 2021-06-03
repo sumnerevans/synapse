@@ -39,6 +39,7 @@ from synapse.logging.context import PreserveLoggingContext
 from synapse.metrics.background_process_metrics import wrap_as_background_process
 from synapse.metrics.jemalloc import setup_jemalloc_stats
 from synapse.util.async_helpers import Linearizer
+from synapse.util.caches.lrucache import schedule_global_cleanup
 from synapse.util.daemonize import daemonize_process
 from synapse.util.rlimit import change_resource_limit
 from synapse.util.versionstring import get_version_string
@@ -360,6 +361,8 @@ async def start(hs: "synapse.server.HomeServer"):
     if platform.python_implementation() == "CPython" and sys.version_info >= (3, 7):
         gc.collect()
         gc.freeze()
+
+    schedule_global_cleanup(hs)
 
 
 def setup_sentry(hs):
