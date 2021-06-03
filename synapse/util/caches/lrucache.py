@@ -343,7 +343,7 @@ class LruCache(Generic[KT, VT]):
 
         def move_node_to_front(node: _Node):
             node.list_node.move_after(list_root)
-            node.global_list_node.move_after(list_root)
+            node.global_list_node.move_after(GLOBAL_ROOT)
 
         def delete_node(node: _Node) -> int:
             node.drop_from_lists()
