@@ -37,7 +37,7 @@ import attr
 from typing_extensions import Literal
 
 from synapse.config import cache as cache_config
-from synapse.util import caches
+from synapse.util import Clock, caches
 from synapse.util.caches import CacheMetric, register_cache
 from synapse.util.caches.treecache import TreeCache, iterate_tree_cache_entry
 
@@ -153,10 +153,10 @@ class _ListNode(Generic[P]):
 GLOBAL_ROOT = _ListNode()
 
 
-def _cleanup():
+async def _cleanup(clock: Clock):
     now = int(time.time())
     node = GLOBAL_ROOT.prev_node
-    i = 0
+    i = 1
     while node is not GLOBAL_ROOT:
         if node.ts > now - 5 * 60:
             break
@@ -164,14 +164,20 @@ def _cleanup():
         parent = node.get_parent()
         node = node.prev_node
         if parent:
-            i += 1
             parent.drop_from_cache()
+
+        if i % 10000 == 0:
+            logger.info("Waiting during drop")
+            await clock.sleep(0)
+            logger.info("Waking during drop")
+
+        i += 1
 
     logger.info("Dropped from caches %d", i)
 
 
 def schedule_global_cleanup(hs: "HomeServer"):
-    hs.get_clock().looping_call(_cleanup, 60 * 1000)
+    hs.get_clock().looping_call(_cleanup, 30 * 1000)
 
 
 class _Node:
