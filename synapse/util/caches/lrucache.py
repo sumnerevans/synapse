@@ -37,6 +37,7 @@ import attr
 from typing_extensions import Literal
 
 from synapse.config import cache as cache_config
+from synapse.metrics.background_process_metrics import wrap_as_background_process
 from synapse.util import Clock, caches
 from synapse.util.caches import CacheMetric, register_cache
 from synapse.util.caches.treecache import TreeCache, iterate_tree_cache_entry
@@ -153,6 +154,7 @@ class _ListNode(Generic[P]):
 GLOBAL_ROOT = _ListNode()
 
 
+@wrap_as_background_process("LruCache._cleanup")
 async def _cleanup(clock: Clock):
     now = int(time.time())
     node = GLOBAL_ROOT.prev_node
