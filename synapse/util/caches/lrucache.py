@@ -157,8 +157,9 @@ async def _cleanup(clock: Clock):
     now = int(time.time())
     node = GLOBAL_ROOT.prev_node
     i = 1
+    logger.info("Searching for stale caches")
     while node is not GLOBAL_ROOT:
-        if node.ts > now - 5 * 60:
+        if node.ts > now - 30 * 60:
             break
 
         parent = node.get_parent()
