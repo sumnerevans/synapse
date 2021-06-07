@@ -177,7 +177,8 @@ async def _cleanup(clock: Clock):
 
 
 def schedule_global_cleanup(hs: "HomeServer"):
-    hs.get_clock().looping_call(_cleanup, 30 * 1000)
+    clock = hs.get_clock()
+    clock.looping_call(_cleanup, 30 * 1000, clock)
 
 
 class _Node:
