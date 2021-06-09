@@ -1527,6 +1527,7 @@ class PresenceEventSource:
                     # will do effectively this.
                     from_key = None
                     include_offline = False
+                    logger.info("SENDING FULL PRESENCE TO USER: %s, FROM_KEY: %s", user_id, from_key)
 
             max_token = self.store.get_current_presence_token()
             if from_key == max_token:
