@@ -37,6 +37,7 @@ from synapse.config.repository import ThumbnailRequirement
 from synapse.http.site import SynapseRequest
 from synapse.logging.context import defer_to_thread
 from synapse.metrics.background_process_metrics import run_as_background_process
+from synapse.rest.media.v1.create_resource import CreateResource
 from synapse.types import UserID
 from synapse.util.async_helpers import Linearizer
 from synapse.util.retryutils import NotRetryingDestination
@@ -150,6 +151,27 @@ class MediaRepository:
             self.recently_accessed_remotes.add((server_name, media_id))
         else:
             self.recently_accessed_locals.add(media_id)
+
+    async def create_media_id(self, auth_user: UserID) -> Tuple[str, int]:
+        """Create and store a media ID for a local user and return the mxc URL
+
+        Args:
+            auth_user: The user_id of the uploader
+
+        Returns:
+            The mxc url of the stored content
+        """
+        media_id = random_string(24)
+        now = self.clock.time_msec()
+        unused_expires_at = now + (60 * 1000)
+        await self.store.store_local_media_id(
+            media_id=media_id,
+            time_now_ms=now,
+            user_id=auth_user,
+            # After 60 seconds, don't allow the upload to start.
+            unused_expires_at=unused_expires_at,
+        )
+        return f"mxc://{self.server_name}/{media_id}", unused_expires_at
 
     async def create_content(
         self,
@@ -957,6 +979,20 @@ class MediaVersion(Enum):
     UNSTABLE = b"unstable"
 
 
+class MSC2246MediaRepositoryResource(Resource):
+    """Media creation and asynchronous uploading.
+
+    This resource implements MSC2246
+    https://github.com/matrix-org/matrix-spec-proposals/pull/2246
+    """
+
+    def __init__(self, hs: "HomeServer"):
+        super().__init__()
+        media_repo = hs.get_media_repository()
+
+        self.putChild(b"create", CreateResource(hs, media_repo))
+
+
 class VersionedMediaRepositoryResource(Resource):
     """File uploading and downloading.
 
@@ -1021,6 +1057,9 @@ class VersionedMediaRepositoryResource(Resource):
                 PreviewUrlResource(hs, media_repo, media_repo.media_storage),
             )
         self.putChild(b"config", MediaConfigResource(hs))
+
+        if version == MediaVersion.UNSTABLE and hs.config.experimental.msc2716_enabled:
+            self.putChild(b"fi.mau.msc2246", MSC2246MediaRepositoryResource(hs))
 
 
 class MediaRepositoryResource(Resource):
