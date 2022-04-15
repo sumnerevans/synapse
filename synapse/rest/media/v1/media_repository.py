@@ -32,9 +32,11 @@ from synapse.api.errors import (
     NotFoundError,
     RequestSendFailed,
     SynapseError,
+    cs_error,
 )
 from synapse.config._base import ConfigError
 from synapse.config.repository import ThumbnailRequirement
+from synapse.http.server import respond_with_json
 from synapse.http.site import SynapseRequest
 from synapse.logging.context import defer_to_thread
 from synapse.metrics.background_process_metrics import run_as_background_process
@@ -287,8 +289,20 @@ class MediaRepository:
 
         return "mxc://%s/%s" % (self.server_name, media_id)
 
+    def respond_not_yet_uploaded(self, request: SynapseRequest) -> None:
+        not_uploaded_error = cs_error(
+            "Media has not been uploaded yet",
+            code="FI.MAU.MSC2246_NOT_YET_UPLOADED",
+            retry_after_ms=5_000,
+        )
+        respond_with_json(request, 404, not_uploaded_error, send_cors=True)
+
     async def get_local_media(
-        self, request: SynapseRequest, media_id: str, name: Optional[str]
+        self,
+        request: SynapseRequest,
+        media_id: str,
+        name: Optional[str],
+        max_stall_ms: int,
     ) -> None:
         """Responds to requests for local media, if exists, or returns 404.
 
@@ -298,16 +312,32 @@ class MediaRepository:
                 the file_id for local content.)
             name: Optional name that, if specified, will be used as
                 the filename in the Content-Disposition header of the response.
+            max_stall_ms: the maximum number of milliseconds to wait for the
+                media to be uploaded.
 
         Returns:
             Resolves once a response has successfully been written to request
         """
-        media_info = await self.store.get_local_media(media_id)
-        if not media_info or media_info["quarantined_by"]:
-            respond_404(request)
-            return
-
         self.mark_recently_accessed(None, media_id)
+
+        wait_until = self.clock.time_msec() + max_stall_ms
+        media_info = None
+        while media_info is None or self.clock.time_msec() < wait_until:
+            # Get the info for the media
+            media_info = await self.store.get_local_media(media_id)
+            if not media_info or media_info["quarantined_by"]:
+                respond_404(request)
+                return
+
+            # The file has been uploaded, so stop looping
+            if media_info.get("media_length") is not None:
+                break
+
+            await self.clock.sleep(0.5)
+
+        if not media_info or not media_info.get("media_length"):
+            self.respond_not_yet_uploaded(request)
+            return
 
         media_type = media_info["media_type"]
         if not media_type:
@@ -329,6 +359,7 @@ class MediaRepository:
         server_name: str,
         media_id: str,
         name: Optional[str],
+        max_stall_ms: int,
     ) -> None:
         """Respond to requests for remote media.
 
@@ -338,6 +369,8 @@ class MediaRepository:
             media_id: The media ID of the content (as defined by the remote server).
             name: Optional name that, if specified, will be used as
                 the filename in the Content-Disposition header of the response.
+            max_stall_ms: the maximum number of milliseconds to wait for the
+                media to be uploaded.
 
         Returns:
             Resolves once a response has successfully been written to request
@@ -350,13 +383,23 @@ class MediaRepository:
 
         self.mark_recently_accessed(server_name, media_id)
 
-        # We linearize here to ensure that we don't try and download remote
-        # media multiple times concurrently
+        wait_until = self.clock.time_msec() + max_stall_ms
+        media_info = None
+        responder = None
         key = (server_name, media_id)
-        async with self.remote_media_linearizer.queue(key):
-            responder, media_info = await self._get_remote_media_impl(
-                server_name, media_id
-            )
+        while media_info is None or self.clock.time_msec() < wait_until:
+            # We linearize here to ensure that we don't try and download remote
+            # media multiple times concurrently
+            async with self.remote_media_linearizer.queue(key):
+                responder, media_info = await self._get_remote_media_impl(
+                    server_name, media_id
+                )
+
+            # The file has been retrieved, so stop looping
+            if responder:
+                break
+
+            await self.clock.sleep(0.5)
 
         # We deliberately stream the file outside the lock
         if responder:
@@ -367,7 +410,8 @@ class MediaRepository:
                 request, responder, media_type, media_length, upload_name
             )
         else:
-            respond_404(request)
+            self.respond_not_yet_uploaded(request)
+            return
 
     async def get_remote_media_info(self, server_name: str, media_id: str) -> dict:
         """Gets the media info associated with the remote file, downloading
@@ -1122,7 +1166,8 @@ class VersionedMediaRepositoryResource(Resource):
         self.putChild(b"upload", UploadResource(hs, media_repo, False))
         self.putChild(b"download", DownloadResource(hs, media_repo))
         self.putChild(
-            b"thumbnail", ThumbnailResource(hs, media_repo, media_repo.media_storage)
+            b"thumbnail",
+            ThumbnailResource(hs, media_repo, media_repo.media_storage),
         )
         if hs.config.media.url_preview_enabled:
             self.putChild(
