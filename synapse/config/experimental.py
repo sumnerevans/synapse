@@ -78,3 +78,6 @@ class ExperimentalConfig(Config):
 
         # MSC2654: Unread counts
         self.msc2654_enabled: bool = experimental.get("msc2654_enabled", False)
+
+        # MSC2246 (async media uploads)
+        self.msc2246_enabled: bool = experimental.get("msc2246_enabled", False)
