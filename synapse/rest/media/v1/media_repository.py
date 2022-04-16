@@ -317,8 +317,7 @@ class MediaRepository:
             this function will send the necessary JSON response.
         """
         wait_until = self.clock.time_msec() + max_stall_ms
-        media_info = None
-        while media_info is None or self.clock.time_msec() < wait_until:
+        while True:
             # Get the info for the media
             media_info = await self.store.get_local_media(media_id)
             if not media_info:
@@ -333,6 +332,9 @@ class MediaRepository:
             # The file has been uploaded, so stop looping
             if media_info.get("media_length") is not None:
                 return media_info
+
+            if self.clock.time_msec() >= wait_until:
+                break
 
             await self.clock.sleep(0.5)
 
@@ -461,11 +463,9 @@ class MediaRepository:
         self, server_name: str, media_id: str, max_stall_ms: int
     ) -> Tuple[Optional[Responder], Optional[dict]]:
         wait_until = self.clock.time_msec() + max_stall_ms
-        media_info = None
-        responder = None
         key = (server_name, media_id)
-        retry_delay_seconds = 1
-        while media_info is None or self.clock.time_msec() < wait_until:
+        retry_delay_seconds = 1.0
+        while True:
             # We linearize here to ensure that we don't try and download remote
             # media multiple times concurrently
             async with self.remote_media_linearizer.queue(key):
@@ -479,6 +479,9 @@ class MediaRepository:
                         return responder, media_info
                 except Exception:
                     pass
+
+            if self.clock.time_msec() >= wait_until:
+                break
 
             # Use exponential backoff for retrying to get the media from the
             # remote server.
