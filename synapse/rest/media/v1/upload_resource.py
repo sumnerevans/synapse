@@ -21,6 +21,7 @@ from synapse.http.server import DirectServeJsonResource, respond_with_json
 from synapse.http.servlet import parse_bytes_from_args
 from synapse.http.site import SynapseRequest
 from synapse.rest.media.v1.media_storage import SpamMediaException
+from synapse.storage.database import LoggingTransaction
 
 from ._base import parse_media_id
 
@@ -137,23 +138,27 @@ class UploadResource(DirectServeJsonResource):
                 errcode=Codes.NOT_FOUND,
             )
 
-        await self.media_repo.verify_can_upload(media_id, requester.user)
-        content_length, upload_name, media_type = self._get_file_metadata(request)
+        async def _update_content(txn: LoggingTransaction) -> None:
+            self.media_repo.verify_can_upload(txn, media_id, requester.user)
+            content_length, upload_name, media_type = self._get_file_metadata(request)
 
-        try:
-            content: IO = request.content  # type: ignore
-            await self.media_repo.update_content(
-                media_id,
-                media_type,
-                upload_name,
-                content,
-                content_length,
-                requester.user,
-            )
-        except SpamMediaException:
-            # For uploading of media we want to respond with a 400, instead of
-            # the default 404, as that would just be confusing.
-            raise SynapseError(400, "Bad content")
+            try:
+                content: IO = request.content  # type: ignore
+                await self.media_repo.update_content(
+                    txn,
+                    media_id,
+                    media_type,
+                    upload_name,
+                    content,
+                    content_length,
+                    requester.user,
+                )
+            except SpamMediaException:
+                # For uploading of media we want to respond with a 400, instead of
+                # the default 404, as that would just be confusing.
+                raise SynapseError(400, "Bad content")
+
+        await self.store.db_pool.runInteraction("_update_content", _update_content)
 
         logger.info("Uploaded content to URI %r", media_id)
         respond_with_json(request, 200, {}, send_cors=True)

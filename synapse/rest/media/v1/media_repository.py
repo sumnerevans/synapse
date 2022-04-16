@@ -40,6 +40,7 @@ from synapse.http.server import respond_with_json
 from synapse.http.site import SynapseRequest
 from synapse.logging.context import defer_to_thread
 from synapse.metrics.background_process_metrics import run_as_background_process
+from synapse.storage.database import LoggingTransaction
 from synapse.types import UserID
 from synapse.util.async_helpers import Linearizer
 from synapse.util.retryutils import NotRetryingDestination
@@ -176,7 +177,9 @@ class MediaRepository:
         )
         return f"mxc://{self.server_name}/{media_id}", unused_expires_at
 
-    async def verify_can_upload(self, media_id: str, auth_user: UserID) -> None:
+    def verify_can_upload(
+        self, txn: LoggingTransaction, media_id: str, auth_user: UserID
+    ) -> None:
         """Verify that the media ID can be uploaded to by the given user. This
         function checks that:
 
@@ -186,10 +189,11 @@ class MediaRepository:
         * the media ID has not expired
 
         Args:
+            txn: the database transaction to perform the checks in.
             media_id: The media ID to verify
             auth_user: The user_id of the uploader
         """
-        media = await self.store.get_local_media(media_id)
+        media = self.store.get_local_media_txn(txn, media_id)
         if media is None:
             raise SynapseError(404, "Unknow media ID", errcode=Codes.NOT_FOUND)
 
@@ -216,6 +220,7 @@ class MediaRepository:
 
     async def update_content(
         self,
+        txn: LoggingTransaction,
         media_id: str,
         media_type: str,
         upload_name: Optional[str],
@@ -226,6 +231,7 @@ class MediaRepository:
         """Update the content of the given media ID.
 
         Args:
+            txn: the database transaction to perform the update in.
             media_id: The media ID to replace.
             media_type: The content type of the file.
             upload_name: The name of the file, if provided.
@@ -237,7 +243,8 @@ class MediaRepository:
         fname = await self.media_storage.store_file(content, file_info)
         logger.info("Stored local media in file %r", fname)
 
-        await self.store.update_local_media(
+        self.store.update_local_media(
+            txn=txn,
             media_id=media_id,
             media_type=media_type,
             upload_name=upload_name,

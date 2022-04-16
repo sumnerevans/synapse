@@ -167,7 +167,23 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
         Returns:
             None if the media_id doesn't exist.
         """
-        return await self.db_pool.simple_select_one(
+        return await self.db_pool.runInteraction(
+            "get_local_media", self.get_local_media_txn, media_id
+        )
+
+    def get_local_media_txn(
+        self, txn: LoggingTransaction, media_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get the metadata for a local piece of media
+
+        Args:
+            media_id: the media ID to retrieve information for
+
+        Returns:
+            None if the media_id doesn't exist.
+        """
+        return self.db_pool.simple_select_one_txn(
+            txn,
             "local_media_repository",
             {"media_id": media_id},
             (
@@ -182,7 +198,6 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                 "unused_expires_at",
             ),
             allow_none=True,
-            desc="get_local_media",
         )
 
     async def get_local_media_by_user_paginate(
@@ -353,8 +368,9 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
             desc="store_local_media",
         )
 
-    async def update_local_media(
+    def update_local_media(
         self,
+        txn: LoggingTransaction,
         media_id: str,
         media_type: str,
         upload_name: Optional[str],
@@ -362,8 +378,9 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
         user_id: UserID,
         url_cache: Optional[str] = None,
     ) -> None:
-        await self.db_pool.simple_update_one(
-            "local_media_repository",
+        self.db_pool.simple_update_one_txn(
+            txn,
+            table="local_media_repository",
             keyvalues={
                 "user_id": user_id.to_string(),
                 "media_id": media_id,
@@ -374,7 +391,6 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                 "media_length": media_length,
                 "url_cache": url_cache,
             },
-            desc="update_local_media",
         )
 
     async def mark_local_media_as_safe(self, media_id: str, safe: bool = True) -> None:
