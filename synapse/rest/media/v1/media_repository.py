@@ -1221,7 +1221,7 @@ class VersionedMediaRepositoryResource(Resource):
             )
         self.putChild(b"config", MediaConfigResource(hs))
 
-        if version == MediaVersion.UNSTABLE and hs.config.experimental.msc2716_enabled:
+        if version == MediaVersion.UNSTABLE and hs.config.experimental.msc2246_enabled:
             self.putChild(b"fi.mau.msc2246", MSC2246MediaRepositoryResource(hs))
 
 

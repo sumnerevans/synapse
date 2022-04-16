@@ -36,7 +36,7 @@ class DownloadResource(DirectServeJsonResource):
         self.media_repo = media_repo
         self.server_name = hs.hostname
         self.clock = hs.get_clock()
-        self.enable_msc2246 = hs.config.experimental.msc2716_enabled
+        self.enable_msc2246 = hs.config.experimental.msc2246_enabled
 
     async def _async_render_GET(self, request: SynapseRequest) -> None:
         set_cors_headers(request)
