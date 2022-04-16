@@ -40,7 +40,6 @@ from synapse.http.server import respond_with_json
 from synapse.http.site import SynapseRequest
 from synapse.logging.context import defer_to_thread
 from synapse.metrics.background_process_metrics import run_as_background_process
-from synapse.rest.media.v1.create_resource import CreateResource
 from synapse.types import UserID
 from synapse.util.async_helpers import Linearizer
 from synapse.util.retryutils import NotRetryingDestination
@@ -55,6 +54,7 @@ from ._base import (
     respond_with_responder,
 )
 from .config_resource import MediaConfigResource
+from .create_resource import CreateResource
 from .download_resource import DownloadResource
 from .filepath import MediaFilePaths
 from .media_storage import MediaStorage
@@ -362,10 +362,11 @@ class MediaRepository:
         Returns:
             Resolves once a response has successfully been written to request
         """
-        self.mark_recently_accessed(None, media_id)
         media_info = await self.get_local_media_info(request, media_id, max_stall_ms)
         if not media_info:
             return
+
+        self.mark_recently_accessed(None, media_id)
 
         media_type = media_info["media_type"]
         if not media_type:
@@ -1211,8 +1212,7 @@ class VersionedMediaRepositoryResource(Resource):
         self.putChild(b"upload", UploadResource(hs, media_repo, False))
         self.putChild(b"download", DownloadResource(hs, media_repo))
         self.putChild(
-            b"thumbnail",
-            ThumbnailResource(hs, media_repo, media_repo.media_storage),
+            b"thumbnail", ThumbnailResource(hs, media_repo, media_repo.media_storage)
         )
         if hs.config.media.url_preview_enabled:
             self.putChild(
