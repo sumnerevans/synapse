@@ -120,7 +120,7 @@ class URLPreviewTests(unittest.HomeserverTestCase):
     def prepare(self, reactor: MemoryReactor, clock: Clock, hs: HomeServer) -> None:
 
         self.media_repo = hs.get_media_repository_resource()
-        self.preview_url = self.media_repo.children[b"preview_url"]
+        self.preview_url = self.media_repo.children[b"v3"].children[b"preview_url"]
 
         self.lookups: Dict[str, Any] = {}
 
