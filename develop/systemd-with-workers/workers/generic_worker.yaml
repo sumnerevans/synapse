@@ -8,6 +8,7 @@ worker_replication_http_port: 9093
 worker_listeners:
   - type: http
     port: 8083
+    x_forwarded: true
     resources:
       - names: [client, federation]
 
